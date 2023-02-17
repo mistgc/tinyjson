@@ -106,11 +106,12 @@ Parse Context::parse_number(Value &v) {
       ;
   }
 
-  v.n = std::strtold(cstr, &end);
-
   errno = 0;
-  if (errno == ERANGE && (v.n == HUGE_VAL || v.n == -HUGE_VAL))
+  v.n = std::strtod(cstr, &end);
+  if (errno == ERANGE && (v.n == HUGE_VAL || v.n == -HUGE_VAL)) {
+    v.type = Type::NIL;
     return Parse::NUMBER_TOO_BIG;
+  }
 
   size_t offset = end - cstr;
   this->offset = offset;

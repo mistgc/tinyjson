@@ -8,6 +8,10 @@ static int main_ret = 0;
 static int test_count = 0;
 static int test_pass = 0;
 
+#define F_NRM "\x1B[0m"
+#define F_FGRN "\x1B[32m"
+#define F_FYEL "\x1B[33m"
+
 #define EXPECT_EQ_BASE(equality, expect, actual, format)                       \
   do {                                                                         \
     test_count++;                                                              \
@@ -93,6 +97,11 @@ static void test_parse_number() {
   TEST_NUMBER(-1.7976931348623157e+308, "-1.7976931348623157e+308");
 }
 
+static void test_parse_number_too_big() {
+  TEST_ERROR(tinyjson::Parse::NUMBER_TOO_BIG, "1e309");
+  TEST_ERROR(tinyjson::Parse::NUMBER_TOO_BIG, "-1e309");
+}
+
 static void test_parse_invalid_value() {
   TEST_ERROR(tinyjson::Parse::INVALID_VALUE, "+0");
   TEST_ERROR(tinyjson::Parse::INVALID_VALUE, "+1");
@@ -108,10 +117,17 @@ static void test_parse() {
   test_parse_null();
   test_parse_expect_value();
   test_parse_number();
+  test_parse_number_too_big();
 }
 
 int main() {
   test_parse();
-  std::printf("%d/%d (%3.2f%%) passed\n", test_pass, test_count,
-              test_pass * 100.0 / test_count);
+
+  if ((test_pass / test_count) < 1) {
+    std::printf(F_FYEL "%d/%d (%3.2f%%) passed\n" F_NRM, test_pass, test_count,
+                test_pass * 100.0 / test_count);
+  } else {
+    std::printf(F_FGRN "%d/%d (%3.2f%%) passed\n" F_NRM, test_pass, test_count,
+                test_pass * 100.0 / test_count);
+  }
 }

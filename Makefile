@@ -11,6 +11,7 @@ check: build
 	find ${PWD} -name *.cc | xargs clang-check -p ${PWD}/build
 
 test: compile
-	build/test/tinyjson_test
+	@printf '\nRunning test case:\n'
+	@build/test/tinyjson_test
 
-PHONY: clean build check compile
+PHONY: clean build check compile test
