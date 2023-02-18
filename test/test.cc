@@ -18,7 +18,7 @@ static int test_pass = 0;
     if (equality)                                                              \
       test_pass++;                                                             \
     else {                                                                     \
-      std::fprintf(stderr, "%s:%d expect: " format " actual:" format "\n",     \
+      std::fprintf(stderr, "%s:%d expect: " format " actual: " format "\n",    \
                    __FILE__, __LINE__, expect, actual);                        \
       main_ret = 1;                                                            \
     }                                                                          \
@@ -29,6 +29,11 @@ static int test_pass = 0;
 
 #define EXPECT_EQ_DOUBLE(expect, actual)                                       \
   EXPECT_EQ_BASE((expect) == (actual), expect, actual, "%f")
+
+#define EXPECT_EQ_STRING(expect, actual, length)                               \
+  EXPECT_EQ_BASE(sizeof(expect) - 1 == length &&                               \
+                     !std::memcmp(expect, actual, length),                     \
+                 expect, actual, "%s")
 
 #define TEST_ERROR(error, json)                                                \
   do {                                                                         \
@@ -46,6 +51,15 @@ static int test_pass = 0;
                   v.parse(std::make_shared<std::string>(std::string(json))));  \
     EXPECT_EQ_INT(tinyjson::Type::NUMBER, v.get_type());                       \
     EXPECT_EQ_DOUBLE(expect, v.get_number());                                  \
+  } while (0)
+
+#define TEST_STRING(expect, json)                                              \
+  do {                                                                         \
+    tinyjson::Value v;                                                         \
+    EXPECT_EQ_INT(tinyjson::Parse::OK,                                         \
+                  v.parse(std::make_shared<std::string>(std::string(json))));  \
+    EXPECT_EQ_INT(tinyjson::Type::STRING, v.get_type());                       \
+    EXPECT_EQ_STRING(expect, v.get_string().c_str(), v.get_string().length()); \
   } while (0)
 
 static void test_parse_null() {
@@ -113,11 +127,21 @@ static void test_parse_invalid_value() {
   TEST_ERROR(tinyjson::Parse::INVALID_VALUE, "nan");
 }
 
+static void test_getter_and_setter() {}
+
+static void test_access_string() {
+  TEST_STRING("123", "\"123\"");
+  TEST_STRING("null", "\"null\"");
+  TEST_STRING("nil", "\"nil\"");
+  TEST_STRING("hello, world\n", "\"hello, world\n\"");
+}
+
 static void test_parse() {
   test_parse_null();
   test_parse_expect_value();
   test_parse_number();
   test_parse_number_too_big();
+  test_access_string();
 }
 
 int main() {
