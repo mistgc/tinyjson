@@ -62,6 +62,29 @@ static int test_pass = 0;
     EXPECT_EQ_STRING(expect, v.get_string().c_str(), v.get_string().length()); \
   } while (0)
 
+#define TEST_GETTER_STRING(expect, json) TEST_STRING(expect, json)
+
+#define TEST_GETTER_NUMBER(expect, json) TEST_NUMBER(expect, json)
+
+#define TEST_GETTER_BOOLEAN(expect, json)                                      \
+  do {                                                                         \
+    tinyjson::Value v;                                                         \
+    int iexpect = -1;                                                          \
+    switch (expect) {                                                          \
+    case tinyjson::Type::TRUE:                                                 \
+      iexpect = 1;                                                             \
+      break;                                                                   \
+    case tinyjson::Type::FALSE:                                                \
+      iexpect = 0;                                                             \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+    EXPECT_EQ_INT(tinyjson::Parse::OK,                                         \
+                  v.parse(std::make_shared<std::string>(std::string(json))));  \
+    EXPECT_EQ_INT(expect, v.get_type());                                       \
+    EXPECT_EQ_INT(iexpect, (int)(v.get_boolean()));                            \
+  } while (0)
+
 static void test_parse_null() {
   tinyjson::Value v;
   v.type = tinyjson::Type::TRUE;
@@ -127,13 +150,79 @@ static void test_parse_invalid_value() {
   TEST_ERROR(tinyjson::Parse::INVALID_VALUE, "nan");
 }
 
-static void test_getter_and_setter() {}
+static void test_getter_and_setter() {
+  TEST_GETTER_NUMBER(0.1, "0.1");
+  TEST_GETTER_NUMBER(0.0, "-0");
+  TEST_GETTER_NUMBER(0.0, "-0.0");
+  TEST_GETTER_NUMBER(1.0, "1");
+  TEST_GETTER_NUMBER(-1.0, "-1");
+  TEST_GETTER_NUMBER(1.5, "1.5");
+  TEST_GETTER_NUMBER(-1.5, "-1.5");
+  TEST_GETTER_NUMBER(3.1416, "3.1416");
+  TEST_GETTER_NUMBER(1E10, "1E10");
+  TEST_GETTER_NUMBER(1e10, "1e10");
+  TEST_GETTER_NUMBER(1E+10, "1E+10");
+  TEST_GETTER_NUMBER(1E-10, "1E-10");
+  TEST_GETTER_NUMBER(-1E10, "-1E10");
+  TEST_GETTER_NUMBER(-1e10, "-1e10");
+  TEST_GETTER_NUMBER(-1E+10, "-1E+10");
+  TEST_GETTER_NUMBER(-1E-10, "-1E-10");
+
+  TEST_GETTER_STRING("123", "\"123\"");
+  TEST_GETTER_STRING("null", "\"null\"");
+  TEST_GETTER_STRING("nil", "\"nil\"");
+  TEST_GETTER_STRING("hello, world\n", "\"hello, world\\n\"");
+
+  TEST_GETTER_BOOLEAN(tinyjson::Type::TRUE, "true");
+  TEST_GETTER_BOOLEAN(tinyjson::Type::FALSE, "false");
+}
 
 static void test_access_string() {
   TEST_STRING("123", "\"123\"");
   TEST_STRING("null", "\"null\"");
   TEST_STRING("nil", "\"nil\"");
-  TEST_STRING("hello, world\n", "\"hello, world\n\"");
+  TEST_STRING("hello, world\n", "\"hello, world\\n\"");
+}
+
+static void test_parse_missing_quotation_mark() {
+  TEST_ERROR(tinyjson::Parse::MISS_QUOTATION_MARK, "\"");
+  TEST_ERROR(tinyjson::Parse::MISS_QUOTATION_MARK, "\"abc");
+}
+
+static void test_parse_invalid_string_escape() {
+  TEST_ERROR(tinyjson::Parse::INVALID_STRING_ESCAPE, "\"\\v\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_STRING_ESCAPE, "\"\\'\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_STRING_ESCAPE, "\"\\0\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_STRING_ESCAPE, "\"\\x12\"");
+}
+
+static void test_parse_invalid_string_char() {
+  TEST_ERROR(tinyjson::Parse::INVALID_STRING_CHAR, "\"\x01\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_STRING_CHAR, "\"\x1F\"");
+}
+
+static void test_parse_invalid_unicode_hex() {
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u0\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u01\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u012\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u/000\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\uG000\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u0/00\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u0G00\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u00/0\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u00G0\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u000/\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u000G\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_HEX, "\"\\u 123\"");
+}
+
+static void test_parse_invalid_unicode_surrogate() {
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_SURROGATE, "\"\\uD800\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_SURROGATE, "\"\\uDBFF\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_SURROGATE, "\"\\uD800\\\\\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_SURROGATE, "\"\\uD800\\uDBFF\"");
+  TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_SURROGATE, "\"\\uD800\\uE000\"");
 }
 
 static void test_parse() {
@@ -142,6 +231,11 @@ static void test_parse() {
   test_parse_number();
   test_parse_number_too_big();
   test_access_string();
+  test_getter_and_setter();
+  test_parse_invalid_string_escape();
+  test_parse_invalid_string_char();
+  test_parse_invalid_unicode_hex();
+  test_parse_invalid_unicode_surrogate();
 }
 
 int main() {

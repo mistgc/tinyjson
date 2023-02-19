@@ -84,10 +84,18 @@ Context::Context() noexcept {
   this->top = this->size = 0;
 }
 
+Context::~Context() {
+  if (this->stack != nullptr) {
+    free(this->stack);
+    this->stack = nullptr;
+  }
+  this->top = this->size = 0;
+}
+
 inline void Context::putc(char ch) {
   if (this->top == this->size)
     this->stack_grow();
-  this->stack[++top] = ch;
+  this->stack[top++] = ch;
 }
 
 inline char Context::popc() {
@@ -100,22 +108,14 @@ inline char Context::popc() {
 void Context::push(const char *str, size_t len) {
   while (this->top + len > this->size)
     this->stack_grow();
-  std::memcpy(this->stack + top + 1, str, len);
+  std::memcpy(this->stack + this->top, str, len);
 }
 
 const char *Context::pop(size_t len) {
   assert(this->stack != nullptr);
   assert(this->top - len >= 0);
   this->top -= len;
-  return this->stack + this->top + 1;
-}
-
-Context::~Context() {
-  if (this->stack != nullptr && this->size > 0) {
-    std::free(this->stack);
-    this->size = 0;
-    this->top = 0;
-  }
+  return this->stack + this->top;
 }
 
 void Context::parse_whitespace() {
@@ -138,7 +138,8 @@ Parse Context::parse_null(Value &v) {
 }
 
 Parse Context::parse_string(Value &v) {
-  size_t head = this->top, len, i = this->offset;
+  size_t head = this->top, len;
+  int64_t i = this->offset;
   EXPECT((*this->json)[i], &i, '\"');
   while (1) {
     char ch = (*this->json)[i++];
@@ -148,10 +149,69 @@ Parse Context::parse_string(Value &v) {
       v.set_cstring(this->pop(len), len);
       this->offset = i;
       return Parse::OK;
+    case '\\':
+      ch = (*this->json)[i++];
+      switch (ch) {
+      case '\"':
+        this->putc('\"');
+        break;
+      case '\\':
+        this->putc('\\');
+        break;
+      case '/':
+        this->putc('/');
+        break;
+      case 'b':
+        this->putc('\b');
+        break;
+      case 'f':
+        this->putc('\f');
+        break;
+      case 'n':
+        this->putc('\n');
+        break;
+      case 'r':
+        this->putc('\r');
+        break;
+      case 't':
+        this->putc('\t');
+        break;
+      case 'u':
+        uint32_t u, u2;
+        if (this->parse_hex4(&i, &u) == Parse::INVALID_UNICODE_HEX) {
+          this->top = head;
+          return Parse::INVALID_UNICODE_HEX;
+        }
+        if (u >= 0xD800 && u <= 0xDBFF) {
+          if ((*this->json)[i++] != '\\' || (*this->json)[i++] != 'u') {
+            this->top = head;
+            return Parse::INVALID_UNICODE_SURROGATE;
+          }
+          if (this->parse_hex4(&i, &u2) == Parse::INVALID_UNICODE_HEX) {
+            this->top = head;
+            return Parse::INVALID_UNICODE_HEX;
+          }
+          if (u2 < 0xDC00 || u2 > 0xDFFF) {
+            this->top = head;
+            return Parse::INVALID_UNICODE_SURROGATE;
+          }
+          u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
+        }
+        this->encode_utf8(u);
+        break;
+      default:
+        this->top = head;
+        return Parse::INVALID_STRING_ESCAPE;
+      }
+      break;
     case '\0':
       this->top = head;
       return Parse::MISS_QUOTATION_MARK;
     default:
+      if ((unsigned char)ch < 0x20) {
+        this->top = head;
+        return Parse::INVALID_STRING_CHAR;
+      }
       this->putc(ch);
     }
   }
@@ -273,6 +333,43 @@ Parse Context::parse_value(Value &v) {
     return this->parse_number(v);
   case '\0':
     return Parse::EXPECT_VALUE;
+  }
+}
+
+Parse Context::parse_hex4(int64_t *offset, uint32_t *u) {
+  *u = 0;
+  for (int i = 0; i < 4; i++) {
+    *u <<= 4;
+    char ch = (*this->json)[*offset + i];
+    if (ch >= '0' && ch <= '9')
+      *u |= ch - '0';
+    else if (ch >= 'A' && ch <= 'F')
+      *u |= ch - 'A' + 10;
+    else if (ch >= 'a' && ch <= 'f')
+      *u |= ch - 'a' + 10;
+    else
+      return Parse::INVALID_UNICODE_HEX;
+  }
+  *offset += 4;
+  return Parse::OK;
+}
+
+void Context::encode_utf8(uint32_t u) {
+  if (u <= 0x7F)
+    this->putc(u & 0xFF);
+  else if (u <= 0x7FF) {
+    this->putc(0xC0 | (u >> 6 & 0xFF));
+    this->putc(0x80 | (u & 0x3F));
+  } else if (u <= 0xFFFF) {
+    this->putc(0xE0 | (u >> 12 & 0xFF));
+    this->putc(0x80 | (u >> 6 & 0x3F));
+    this->putc(0x80 | (u & 0x3F));
+  } else {
+    assert(u <= 0x10FFFF);
+    this->putc(0xF0 | (u >> 18 & 0xFF));
+    this->putc(0x80 | (u >> 12 & 0x3F));
+    this->putc(0x80 | (u >> 6 & 0x3F));
+    this->putc(0x80 | (u & 0x3F));
   }
 }
 

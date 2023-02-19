@@ -1,15 +1,14 @@
 #ifndef _TINYJSON_H_
 #define _TINYJSON_H_
 
-#include <memory>
-#include <string>
 #include <cassert>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
-#include <iostream>
-#include <cstdlib>
 #include <cstring>
+#include <iostream>
+#include <memory>
+#include <string>
 
 namespace tinyjson {
 
@@ -26,6 +25,10 @@ enum Parse {
   ROOT_NOT_SINGULAR,
   NUMBER_TOO_BIG,
   MISS_QUOTATION_MARK,
+  INVALID_STRING_ESCAPE,
+  INVALID_STRING_CHAR,
+  INVALID_UNICODE_HEX,
+  INVALID_UNICODE_SURROGATE,
 };
 
 class Value {
@@ -45,7 +48,7 @@ public:
   Parse parse(std::shared_ptr<const std::string> json);
 
   void set_string(std::shared_ptr<const std::string> str);
-  void set_cstring(const char* str, size_t len);
+  void set_cstring(const char *str, size_t len);
   size_t get_string_len();
   std::string get_string();
 
@@ -60,11 +63,10 @@ public:
 
 class Context {
 private:
-    char* stack;
-    size_t size, top;
+  char *stack;
+  size_t size, top;
 
-    void stack_grow();
-
+  void stack_grow();
 public:
   std::shared_ptr<const std::string> json;
   int64_t offset;
@@ -74,7 +76,7 @@ public:
 
   inline void putc(char ch);
   inline char popc();
-  void push(const char* str, size_t len);
+  void push(const char *str, size_t len);
   const char *pop(size_t len);
 
   void parse_whitespace();
@@ -85,6 +87,8 @@ public:
   Parse parse_null(Value &v);
   Parse parse_literal(Value &v);
   Parse parse_number(Value &v);
+  Parse parse_hex4(int64_t *offset, uint32_t *u);
+  void encode_utf8(uint32_t u);
 };
 
 } // namespace tinyjson
