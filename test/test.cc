@@ -35,6 +35,14 @@ static int test_pass = 0;
                      !std::memcmp(expect, actual, length),                     \
                  expect, actual, "%s")
 
+#ifdef _MSC_VER
+#define EXPECT_EQ_SIZE_T(expect, actual)                                       \
+  EXPECT_EQ_BASE((expect) == (actual), (size_t)expect, (size_t)actual, "%lu")
+#else
+#define EXPECT_EQ_SIZE_T(expect, actual)                                       \
+  EXPECT_EQ_BASE((expect) == (actual), (size_t)expect, (size_t)actual, "%zu")
+#endif
+
 #define TEST_ERROR(error, json)                                                \
   do {                                                                         \
     tinyjson::Value v;                                                         \
@@ -60,6 +68,15 @@ static int test_pass = 0;
                   v.parse(std::make_shared<std::string>(std::string(json))));  \
     EXPECT_EQ_INT(tinyjson::Type::STRING, v.get_type());                       \
     EXPECT_EQ_STRING(expect, v.get_string().c_str(), v.get_string().length()); \
+  } while (0)
+
+#define TEST_ARRAY(expect, expect_size, json)                                  \
+  do {                                                                         \
+    tinyjson::Value v;                                                         \
+    EXPECT_EQ_INT(tinyjson::Parse::OK,                                         \
+                  v.parse(std::make_shared<std::string>(std::string(json))));  \
+    EXPECT_EQ_INT(tinyjson::Type::ARRAY, v.get_type());                        \
+    EXPECT_EQ_SIZE_T(expect_size, v.get_array_size());                         \
   } while (0)
 
 #define TEST_GETTER_STRING(expect, json) TEST_STRING(expect, json)
@@ -225,6 +242,46 @@ static void test_parse_invalid_unicode_surrogate() {
   TEST_ERROR(tinyjson::Parse::INVALID_UNICODE_SURROGATE, "\"\\uD800\\uE000\"");
 }
 
+static void test_parse_array() {
+  tinyjson::Value v;
+  EXPECT_EQ_INT(tinyjson::Parse::OK,
+                v.parse(std::make_shared<std::string>(std::string("[ ]"))));
+  EXPECT_EQ_INT(tinyjson::Type::ARRAY, v.get_type());
+  EXPECT_EQ_SIZE_T(0, v.get_array_size());
+
+  v = tinyjson::Value();
+  EXPECT_EQ_INT(tinyjson::Parse::OK,
+                v.parse(std::make_shared<std::string>(
+                    std::string("[ null , false , true , 123 , \"abc\" ]"))));
+  EXPECT_EQ_INT(tinyjson::Type::ARRAY, v.get_type());
+  EXPECT_EQ_SIZE_T(5, v.get_array_size());
+  EXPECT_EQ_INT(tinyjson::NIL, v.get_array_elem(0)->get_type());
+  EXPECT_EQ_INT(tinyjson::FALSE, v.get_array_elem(1)->get_type());
+  EXPECT_EQ_INT(tinyjson::TRUE, v.get_array_elem(2)->get_type());
+  EXPECT_EQ_INT(tinyjson::NUMBER, v.get_array_elem(3)->get_type());
+  EXPECT_EQ_INT(tinyjson::STRING, v.get_array_elem(4)->get_type());
+  EXPECT_EQ_DOUBLE(123.0, v.get_array_elem(3)->get_number());
+  EXPECT_EQ_STRING("abc", v.get_array_elem(4)->get_string().c_str(),
+                   v.get_array_elem(4)->get_string_len());
+
+  v = tinyjson::Value();
+  EXPECT_EQ_INT(tinyjson::Parse::OK,
+                v.parse(std::make_shared<std::string>(std::string(
+                    "[ [ ] , [ 0 ] , [ 0 , 1 ] , [ 0 , 1 , 2 ] ]"))));
+  EXPECT_EQ_INT(tinyjson::Type::ARRAY, v.get_type());
+  EXPECT_EQ_SIZE_T(4, v.get_array_size());
+  for (int i = 0; i < 4; i++) {
+    tinyjson::Value *e = v.get_array_elem(i);
+    EXPECT_EQ_INT(tinyjson::Type::ARRAY, e->get_type());
+    EXPECT_EQ_SIZE_T(i, e->get_array_size());
+    for (int j = 0; j < i; j++) {
+      tinyjson::Value *ee = e->get_array_elem(j);
+      EXPECT_EQ_INT(tinyjson::Type::NUMBER, ee->get_type());
+      EXPECT_EQ_DOUBLE((double)j, ee->get_number());
+    }
+  }
+}
+
 static void test_parse() {
   test_parse_null();
   test_parse_expect_value();
@@ -236,6 +293,7 @@ static void test_parse() {
   test_parse_invalid_string_char();
   test_parse_invalid_unicode_hex();
   test_parse_invalid_unicode_surrogate();
+  test_parse_array();
 }
 
 int main() {

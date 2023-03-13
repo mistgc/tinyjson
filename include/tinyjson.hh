@@ -25,6 +25,7 @@ enum Parse {
   ROOT_NOT_SINGULAR,
   NUMBER_TOO_BIG,
   MISS_QUOTATION_MARK,
+  MISS_COMMA_OR_SQUARE_BRACKET,
   INVALID_STRING_ESCAPE,
   INVALID_STRING_CHAR,
   INVALID_UNICODE_HEX,
@@ -39,10 +40,23 @@ public:
   std::string s;
   /* number */
   double n;
+  /* array */
+  struct {
+    Value **elems;
+    size_t array_len;
+  };
 
   Value() {
     this->type = Type::NIL;
     this->n = 0;
+    this->elems = nullptr;
+    this->array_len = 0;
+  }
+
+  ~Value() {
+      if (this->type == Type::ARRAY) {
+          delete[] elems;
+      }
   }
 
   Parse parse(std::shared_ptr<const std::string> json);
@@ -58,6 +72,9 @@ public:
   void set_number(double n);
   double get_number();
 
+  size_t get_array_size();
+  Value *get_array_elem(size_t index);
+
   Type get_type();
 };
 
@@ -67,6 +84,8 @@ private:
   size_t size, top;
 
   void stack_grow();
+  void stack_grow_size(size_t len);
+
 public:
   std::shared_ptr<const std::string> json;
   int64_t offset;
@@ -88,6 +107,7 @@ public:
   Parse parse_literal(Value &v);
   Parse parse_number(Value &v);
   Parse parse_hex4(int64_t *offset, uint32_t *u);
+  Parse parse_array(Value &v);
   void encode_utf8(uint32_t u);
 };
 

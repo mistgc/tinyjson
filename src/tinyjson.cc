@@ -1,4 +1,5 @@
 #include "tinyjson.hh"
+#include <cassert>
 
 namespace tinyjson {
 #ifndef CONTEXT_STACK_INIT_SIZE
@@ -69,12 +70,29 @@ std::string Value::get_string() {
   return this->s;
 }
 
+size_t Value::get_array_size() {
+  assert(Type::ARRAY == this->type);
+  return this->array_len;
+}
+
+Value *Value::get_array_elem(size_t index) {
+  assert(Type::ARRAY == this->type);
+  assert(this->elems != nullptr);
+  assert(index < this->array_len);
+  return this->elems[index];
+}
+
 void Context::stack_grow() {
   if (this->size != 0)
     this->size += this->size >> 1; /* size = size * 1.5 */
   else
     this->size = CONTEXT_STACK_INIT_SIZE;
   this->stack = (char *)std::realloc(this->stack, this->size);
+}
+
+void Context::stack_grow_size(size_t len) {
+  while (this->top + len > this->size)
+    this->stack_grow();
 }
 
 Context::Context() noexcept {
@@ -106,8 +124,7 @@ inline char Context::popc() {
 }
 
 void Context::push(const char *str, size_t len) {
-  while (this->top + len > this->size)
-    this->stack_grow();
+  this->stack_grow_size(len);
   std::memcpy(this->stack + this->top, str, len);
 }
 
@@ -245,7 +262,7 @@ Parse Context::parse_number(Value &v) {
 
   char *end;
   const char *p, *cstr = (*this->json).c_str();
-  p = cstr;
+  p = cstr + this->offset;
   if (*p == '-')
     p++;
   if (*p == '0')
@@ -274,7 +291,7 @@ Parse Context::parse_number(Value &v) {
   }
 
   errno = 0;
-  v.n = std::strtod(cstr, &end);
+  v.n = std::strtod(cstr + this->offset, &end);
   if (errno == ERANGE && (v.n == HUGE_VAL || v.n == -HUGE_VAL)) {
     v.type = Type::NIL;
     return Parse::NUMBER_TOO_BIG;
@@ -289,7 +306,7 @@ Parse Context::parse_number(Value &v) {
 Parse Context::parse_true(Value &v) {
   size_t i = this->offset;
   EXPECT((*this->json)[i], &i, 't');
-  if ((*this->json)[i++] != 'r' && (*this->json)[i++] != 'u' &&
+  if ((*this->json)[i++] != 'r' || (*this->json)[i++] != 'u' ||
       (*this->json)[i++] != 'e')
     return Parse::INVALID_VALUE;
   v.type = Type::TRUE;
@@ -300,8 +317,8 @@ Parse Context::parse_true(Value &v) {
 Parse Context::parse_false(Value &v) {
   size_t i = this->offset;
   EXPECT((*this->json)[i], &i, 'f');
-  if ((*this->json)[i++] != 'a' && (*this->json)[i++] != 'l' &&
-      (*this->json)[i++] != 's' && (*this->json)[i++] != 'e')
+  if ((*this->json)[i++] != 'a' || (*this->json)[i++] != 'l' ||
+      (*this->json)[i++] != 's' || (*this->json)[i++] != 'e')
     return Parse::INVALID_VALUE;
   v.type = Type::FALSE;
   this->offset = i;
@@ -329,6 +346,8 @@ Parse Context::parse_value(Value &v) {
     return this->parse_literal(v);
   case '\"':
     return this->parse_string(v);
+  case '[':
+    return this->parse_array(v);
   default:
     return this->parse_number(v);
   case '\0':
@@ -351,6 +370,57 @@ Parse Context::parse_hex4(int64_t *offset, uint32_t *u) {
       return Parse::INVALID_UNICODE_HEX;
   }
   *offset += 4;
+  return Parse::OK;
+}
+
+Parse Context::parse_array(Value &v) {
+  int64_t i = this->offset;
+  size_t size = 0;
+  Parse ret;
+  EXPECT((*this->json)[i], &i, '[');
+  this->offset = i;
+  this->parse_whitespace();
+  i = this->offset;
+  // Handle empty array
+  if ((*this->json)[i] == ']') {
+    i++;
+    this->offset = i;
+    v.type = Type::ARRAY;
+    v.array_len = 0;
+    v.elems = nullptr;
+    return Parse::OK;
+  }
+  while (1) {
+    Value *e = new Value();
+    if ((ret = this->parse_value(*e)) != Parse::OK) {
+      return ret;
+    }
+    i = this->offset;
+    this->stack_grow_size(sizeof(Value *));
+    std::memcpy(this->stack + this->top, &e, sizeof(Value *));
+    this->top += sizeof(Value *);
+    size++;
+    this->parse_whitespace();
+    i = this->offset;
+    if ((*this->json)[i] == ',') {
+      i++;
+      this->offset = i;
+      this->parse_whitespace();
+      i = this->offset;
+    } else if ((*this->json)[i] == ']') {
+      i++;
+      v.type = Type::ARRAY;
+      v.array_len = size;
+      size *= sizeof(Value *);
+      v.elems = (Value **)std::malloc(size);
+      std::memcpy(v.elems, this->pop(size), size);
+      this->offset = i;
+      return Parse::OK;
+    } else {
+      return Parse::MISS_COMMA_OR_SQUARE_BRACKET;
+    }
+  }
+
   return Parse::OK;
 }
 
