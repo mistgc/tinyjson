@@ -1,5 +1,6 @@
 #include "tinyjson.hh"
 #include <cassert>
+#include <cstdlib>
 
 namespace tinyjson {
 #ifndef CONTEXT_STACK_INIT_SIZE
@@ -14,6 +15,10 @@ namespace tinyjson {
 
 #define ISDIGIT(ch) ((ch) >= '0' && (ch) <= '9')
 #define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
+
+/************
+ * Value Impl
+ ************/
 
 Parse Value::parse(std::shared_ptr<const std::string> json) {
   Context c;
@@ -81,6 +86,47 @@ Value *Value::get_array_elem(size_t index) {
   assert(index < this->array_len);
   return this->elems[index];
 }
+
+size_t Value::get_object_size() {
+  assert(Type::OBJECT == this->type);
+  assert(this->members != nullptr);
+  return this->members_len;
+}
+
+Value *Value::get_object_value(size_t index) {
+  assert(Type::OBJECT == this->type);
+  assert(this->members != nullptr);
+  assert(index < this->members_len);
+  return &this->members[index]->value;
+}
+
+std::string Value::get_object_key(size_t index) {
+  assert(Type::OBJECT == this->type);
+  assert(this->members != nullptr);
+  assert(index < this->members_len);
+  return this->members[index]->key;
+}
+
+size_t Value::get_object_key_len(size_t index) {
+  assert(Type::OBJECT == this->type);
+  assert(this->members != nullptr);
+  assert(index < this->members_len);
+  return this->members[index]->key.length();
+}
+
+/************
+ * Member Impl
+ ************/
+
+std::string Member::get_key() { return this->key; }
+
+size_t Member::get_key_len() { return this->key.length(); }
+
+Value Member::get_value() { return this->value; }
+
+/************
+ * Content Impl
+ ************/
 
 void Context::stack_grow() {
   if (this->size != 0)
@@ -154,7 +200,7 @@ Parse Context::parse_null(Value &v) {
   return Parse::OK;
 }
 
-Parse Context::parse_string(Value &v) {
+Parse Context::parse_string_raw(char **str, size_t *strlen) {
   size_t head = this->top, len;
   int64_t i = this->offset;
   EXPECT((*this->json)[i], &i, '\"');
@@ -163,7 +209,9 @@ Parse Context::parse_string(Value &v) {
     switch (ch) {
     case '\"':
       len = this->top - head;
-      v.set_cstring(this->pop(len), len);
+      *str = (char *)std::malloc(len);
+      std::memcpy(*str, this->pop(len), len);
+      *strlen = len;
       this->offset = i;
       return Parse::OK;
     case '\\':
@@ -232,6 +280,17 @@ Parse Context::parse_string(Value &v) {
       this->putc(ch);
     }
   }
+}
+
+Parse Context::parse_string(Value &v) {
+  size_t len;
+  Parse ret;
+  char *str;
+  if ((ret = this->parse_string_raw(&str, &len)) != Parse::OK) {
+    return ret;
+  }
+  v.set_cstring(str, len);
+  return Parse::OK;
 }
 
 /*
@@ -348,6 +407,8 @@ Parse Context::parse_value(Value &v) {
     return this->parse_string(v);
   case '[':
     return this->parse_array(v);
+  case '{':
+    return this->parse_object(v);
   default:
     return this->parse_number(v);
   case '\0':
@@ -422,6 +483,70 @@ Parse Context::parse_array(Value &v) {
   }
 
   return Parse::OK;
+}
+Parse Context::parse_object(Value &v) {
+  Parse ret;
+  size_t size = 0, i = this->offset;
+  const size_t P_MEM_SIZE = sizeof(Member *);
+
+  EXPECT((*this->json)[i], &i, '{');
+  this->offset = i;
+  this->parse_whitespace();
+
+  if ((*this->json)[this->offset] == '}') {
+    this->offset++;
+    v.type = Type::OBJECT;
+    v.members = nullptr;
+    v.members_len = 0;
+    return Parse::OK;
+  }
+
+  while (1) {
+    char *str = nullptr;
+    size_t strlen = 0;
+    Member *m = nullptr;
+    if ((*this->json)[this->offset] != '\"') {
+      return Parse::MISS_KEY;
+    }
+    if ((ret = this->parse_string_raw(&str, &strlen)) != Parse::OK) {
+      return ret;
+    }
+    this->parse_whitespace();
+    if ((*this->json)[this->offset] != ':') {
+      return Parse::MISS_COLON;
+    }
+    this->offset++;
+    this->parse_whitespace();
+    m = new Member();
+    m->key = std::string(str, strlen);
+
+    std::free(str);
+    str = nullptr;
+    strlen = 0;
+
+    if ((ret = this->parse_value(m->value)) != Parse::OK) {
+      return ret;
+    }
+    this->stack_grow_size(P_MEM_SIZE);
+    std::memcpy(this->stack + this->top, &m, P_MEM_SIZE);
+    this->top += P_MEM_SIZE;
+    size++;
+    this->parse_whitespace();
+    if ((*this->json)[this->offset] == ',') {
+      this->offset++;
+      this->parse_whitespace();
+    } else if ((*this->json)[this->offset] == '}') {
+      this->offset++;
+      v.type = Type::OBJECT;
+      v.members_len = size;
+      size *= P_MEM_SIZE;
+      v.members = (Member **)std::malloc(size);
+      std::memcpy(v.members, this->pop(size), size);
+      return Parse::OK;
+    } else {
+      return Parse::MISS_COMMA_OR_CURLY_BRACKET;
+    }
+  }
 }
 
 void Context::encode_utf8(uint32_t u) {

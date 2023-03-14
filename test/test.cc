@@ -27,6 +27,9 @@ static int test_pass = 0;
 #define EXPECT_EQ_INT(expect, actual)                                          \
   EXPECT_EQ_BASE((expect) == (actual), expect, actual, "%d")
 
+#define EXPECT_TRUE(actual)                                                    \
+  EXPECT_EQ_BASE((0) != (actual), "true", "false", "%s")
+
 #define EXPECT_EQ_DOUBLE(expect, actual)                                       \
   EXPECT_EQ_BASE((expect) == (actual), expect, actual, "%f")
 
@@ -282,6 +285,80 @@ static void test_parse_array() {
   }
 }
 
+static void test_parse_miss_key() {
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{1:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{true:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{false:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{null:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{[]:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{{}:1,");
+  TEST_ERROR(tinyjson::Parse::MISS_KEY, "{\"a\":1,");
+}
+
+static void test_parse_miss_colon() {
+  TEST_ERROR(tinyjson::Parse::MISS_COLON, "{\"a\"}");
+  TEST_ERROR(tinyjson::Parse::MISS_COLON, "{\"a\",\"b\"}");
+}
+
+static void test_parse_miss_comma_or_curly_bracket() {
+  TEST_ERROR(tinyjson::Parse::MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1");
+  TEST_ERROR(tinyjson::Parse::MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1]");
+  TEST_ERROR(tinyjson::Parse::MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1 \"b\"");
+  TEST_ERROR(tinyjson::Parse::MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":{}");
+}
+
+static void test_parse_object() {
+  tinyjson::Value v;
+  EXPECT_EQ_INT(tinyjson::Parse::OK,
+                v.parse(std::make_shared<std::string>(
+                    " { "
+                    "\"n\" : null , "
+                    "\"f\" : false , "
+                    "\"t\" : true , "
+                    "\"i\" : 123 , "
+                    "\"s\" : \"abc\", "
+                    "\"a\" : [ 1, 2, 3 ],"
+                    "\"o\" : { \"1\" : 1, \"2\" : 2, \"3\" : 3 }"
+                    " } ")));
+
+  EXPECT_EQ_INT(tinyjson::Type::OBJECT, v.get_type());
+  EXPECT_EQ_SIZE_T(7, v.get_object_size());
+  EXPECT_EQ_STRING("n", v.get_object_key(0).c_str(), v.get_object_key_len(0));
+  EXPECT_EQ_INT(tinyjson::Type::NIL, v.get_object_value(0)->get_type());
+  EXPECT_EQ_STRING("f", v.get_object_key(1).c_str(), v.get_object_key_len(1));
+  EXPECT_EQ_INT(tinyjson::Type::FALSE, v.get_object_value(1)->get_type());
+  EXPECT_EQ_STRING("t", v.get_object_key(2).c_str(), v.get_object_key_len(2));
+  EXPECT_EQ_INT(tinyjson::Type::TRUE, v.get_object_value(2)->get_type());
+  EXPECT_EQ_STRING("i", v.get_object_key(3).c_str(), v.get_object_key_len(3));
+  EXPECT_EQ_INT(tinyjson::Type::NUMBER, v.get_object_value(3)->get_type());
+  EXPECT_EQ_DOUBLE(123.0, v.get_object_value(3)->get_number());
+  EXPECT_EQ_STRING("s", v.get_object_key(4).c_str(), v.get_object_key_len(4));
+  EXPECT_EQ_INT(tinyjson::Type::STRING, v.get_object_value(4)->get_type());
+  EXPECT_EQ_STRING("abc", v.get_object_value(4)->get_string().c_str(),
+                   v.get_object_value(4)->get_string_len());
+  EXPECT_EQ_STRING("a", v.get_object_key(5).c_str(), v.get_object_key_len(5));
+  EXPECT_EQ_INT(tinyjson::Type::ARRAY, v.get_object_value(5)->get_type());
+  EXPECT_EQ_SIZE_T(3, v.get_object_value(5)->get_array_size());
+  for (int i = 0; i < 3; i++) {
+    tinyjson::Value *e = v.get_object_value(5)->get_array_elem(i);
+    EXPECT_EQ_INT(tinyjson::Type::NUMBER, e->get_type());
+    EXPECT_EQ_DOUBLE(i + 1.0, e->get_number());
+  }
+  EXPECT_EQ_STRING("o", v.get_object_key(6).c_str(), v.get_object_key_len(6));
+  {
+    tinyjson::Value *o = v.get_object_value(6);
+    EXPECT_EQ_INT(tinyjson::Type::OBJECT, o->get_type());
+    for (int i = 0; i < 3; i++) {
+      tinyjson::Value *ov = o->get_object_value(i);
+      EXPECT_TRUE('1' + i == o->get_object_key(i).c_str()[0]);
+      EXPECT_EQ_SIZE_T(1, o->get_object_key_len(i));
+      EXPECT_EQ_INT(tinyjson::NUMBER, ov->get_type());
+      EXPECT_EQ_DOUBLE(i + 1.0, ov->get_number());
+    }
+  }
+}
+
 static void test_parse() {
   test_parse_null();
   test_parse_expect_value();
@@ -294,6 +371,10 @@ static void test_parse() {
   test_parse_invalid_unicode_hex();
   test_parse_invalid_unicode_surrogate();
   test_parse_array();
+  test_parse_miss_key();
+  test_parse_miss_colon();
+  test_parse_miss_comma_or_curly_bracket();
+  test_parse_object();
 }
 
 int main() {

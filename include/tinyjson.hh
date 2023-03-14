@@ -26,11 +26,16 @@ enum Parse {
   NUMBER_TOO_BIG,
   MISS_QUOTATION_MARK,
   MISS_COMMA_OR_SQUARE_BRACKET,
+  MISS_KEY,
+  MISS_COLON,
+  MISS_COMMA_OR_CURLY_BRACKET,
   INVALID_STRING_ESCAPE,
   INVALID_STRING_CHAR,
   INVALID_UNICODE_HEX,
   INVALID_UNICODE_SURROGATE,
 };
+
+class Member;
 
 class Value {
 public:
@@ -41,9 +46,15 @@ public:
   /* number */
   double n;
   /* array */
-  struct {
-    Value **elems;
-    size_t array_len;
+  union {
+    struct {
+      Value **elems;
+      size_t array_len;
+    };
+    struct {
+      Member **members;
+      size_t members_len;
+    };
   };
 
   Value() {
@@ -54,9 +65,19 @@ public:
   }
 
   ~Value() {
-      if (this->type == Type::ARRAY) {
-          delete[] elems;
+    if (this->type == Type::ARRAY) {
+      for (int i = 0; i < this->array_len; i++) {
+        delete elems[i];
       }
+      delete elems;
+      elems = nullptr;
+    } else if (this->type == Type::OBJECT) {
+      for (int i = 0; i < this->members_len; i++) {
+        delete members[i];
+      }
+      delete members;
+      members = nullptr;
+    }
   }
 
   Parse parse(std::shared_ptr<const std::string> json);
@@ -75,7 +96,25 @@ public:
   size_t get_array_size();
   Value *get_array_elem(size_t index);
 
+  size_t get_object_size();
+  Value *get_object_value(size_t index);
+  std::string get_object_key(size_t index);
+  size_t get_object_key_len(size_t index);
+
   Type get_type();
+};
+
+class Member {
+public:
+  std::string key;
+  Value value;
+
+  Member() {}
+  Member(std::string k, Value v) : key(k), value(v) {}
+
+  std::string get_key();
+  size_t get_key_len();
+  Value get_value();
 };
 
 class Context {
@@ -99,6 +138,7 @@ public:
   const char *pop(size_t len);
 
   void parse_whitespace();
+  Parse parse_string_raw(char **str, size_t *strlen);
   Parse parse_string(Value &v);
   Parse parse_value(Value &v);
   Parse parse_true(Value &v);
@@ -108,6 +148,7 @@ public:
   Parse parse_number(Value &v);
   Parse parse_hex4(int64_t *offset, uint32_t *u);
   Parse parse_array(Value &v);
+  Parse parse_object(Value &v);
   void encode_utf8(uint32_t u);
 };
 
